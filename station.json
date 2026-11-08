@@ -1,53 +1,36 @@
 {
- "format": "myradio/station-1",
- "name": "ものラジオ",
- "description": "電子工作・3Dプリンター・AI の、きのうの気になるニュースを、毎朝 90 秒で。",
- "tagline": "AI・3D 朝のニュース",
- "logo": "logo.svg",
- "url": "https://monoradio102.github.io/myradio/",
- "repo": "https://github.com/monoradio102/myradio",
- "language": "ja",
- "languages": [
-  "ja",
-  "en"
- ],
- "schedule": {
-  "every": "day",
-  "time": "06:10",
-  "timezone": "Asia/Tokyo"
- },
- "episodes": "episodes.json",
- "character": {
-  "pack": "character/character.json",
-  "thumbnail": "character/base.png",
-  "note": "AIで生成したキャラクターです"
- },
- "credits": [
-  "声：COEIROINK:リリンちゃん"
- ],
- "caster": "声：COEIROINK:リリンちゃん",
- "audio": {
-  "dir": "audio",
-  "keep_days": 30
- },
- "weather": true,
- "comments": {
-  "giscus": {
-   "repo": "monoradio102/myradio",
-   "repoId": "R_kgDOVjfh2A",
-   "category": "Comments",
-   "categoryId": "DIC_kwDOVjfh2M4DKdQF"
+  "format": "myradio/station-1",
+  "name": "My Radio",
+  "description": "登録したニュースを、キャスターが日本語で読み上げるラジオ。",
+  "tagline": "1日3回のニュース便",
+  "logo": "logo.svg",
+  "url": "https://uquqgodon.github.io/myradio/",
+  "repo": "https://github.com/Uquqgodon/myradio",
+  "language": "ja",
+  "languages": [
+    "ja"
+  ],
+  "schedule": {
+    "every": "day",
+    "times": [
+      "07:00",
+      "12:00",
+      "18:00"
+    ],
+    "timezone": "Asia/Tokyo"
+  },
+  "episodes": "episodes.json",
+  "character": {
+    "pack": "character/character.json",
+    "thumbnail": "character/base.png",
+    "note": "AIで生成したキャラクターです"
+  },
+  "credits": [
+    "合成音声：HTS Voice「Mei」 © 2009–2013 名古屋工業大学（MMDAgent Project Team、CC BY 3.0）"
+  ],
+  "caster": "合成音声：Mei",
+  "audio": {
+    "dir": "audio",
+    "keep_days": 30
   }
- },
- "i18n": {
-  "en": {
-   "name": "Mono Radio",
-   "tagline": "Morning news on AI and 3D",
-   "description": "The news worth knowing in electronics, 3D printing and AI, every morning in 90 seconds.",
-   "credits": [
-    "Voice: Kokoro (af_heart)"
-   ],
-   "caster": "Voice: Kokoro (af_heart)"
-  }
- }
 }

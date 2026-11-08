@@ -20,6 +20,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
-This license covers the program (index.html and tools/). The episode scripts
-(episodes/, episodes.json) are dedicated to the public domain under CC0 1.0. The
-sample station's identity (station.json, logo.svg, character/) belongs to ものラジオ.
+This license covers the program. The scripts supplied by the original project
+are dedicated to the public domain under CC0 1.0. The original station identity
+and the reused character assets belong to ものラジオ. See README.md for the
+character permission and the license and credit for the demo voice.

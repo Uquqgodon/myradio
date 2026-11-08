@@ -1,0 +1,87 @@
+{
+  "format": "monoradio/news-1",
+  "date": "2026-11-08",
+  "title": "ようこそ、My Radio へ",
+  "opening": [
+    {
+      "say": "ようこそ、マイラジオへ。",
+      "show": "ようこそ、My Radio へ。"
+    }
+  ],
+  "news": [
+    {
+      "label": "スマホで試してみよう",
+      "points": [
+        "音声と字幕が連動",
+        "再生バーで好きな位置へ"
+      ],
+      "lines": [
+        {
+          "say": "これは、スマホで聴けるラジオのデモです。",
+          "show": "これは、スマホで聴けるラジオのデモです。"
+        },
+        {
+          "say": "再生バーで、好きなところへ移動できます。",
+          "show": "再生バーで、好きなところへ移動できます。"
+        }
+      ],
+      "url": "https://github.com/Uquqgodon/myradio#readme"
+    }
+  ],
+  "closing": [
+    {
+      "say": "それでは、ゆっくりお楽しみください。",
+      "show": "それでは、ゆっくりお楽しみください。"
+    }
+  ],
+  "lang": "ja",
+  "seconds": 11.484,
+  "lines_timed": [
+    {
+      "start": 0.3,
+      "end": 1.974,
+      "show": "ようこそ、My Radio へ。",
+      "part": 0
+    },
+    {
+      "start": 2.444,
+      "end": 5.12,
+      "show": "これは、スマホで聴けるラジオのデモです。",
+      "part": 1
+    },
+    {
+      "start": 5.28,
+      "end": 8.208,
+      "show": "再生バーで、好きなところへ移動できます。",
+      "part": 1
+    },
+    {
+      "start": 8.678,
+      "end": 11.234,
+      "show": "それでは、ゆっくりお楽しみください。",
+      "part": 2
+    }
+  ],
+  "segments": [
+    {
+      "kind": "opening",
+      "index": null,
+      "start": 0.0,
+      "end": 2.144
+    },
+    {
+      "kind": "news",
+      "index": 0,
+      "start": 2.144,
+      "end": 8.378
+    },
+    {
+      "kind": "closing",
+      "index": null,
+      "start": 8.378,
+      "end": 11.484
+    }
+  ],
+  "audio": "demo/2026-11-08.mp3",
+  "made_at": "2026-11-08T02:14:26+09:00"
+}

@@ -1,5 +1,7 @@
 # AGENTS.md — myradio の局を開く・運用する AI へ
 
+My Radio フォークの自動配信とローカル確認は [README.md](README.md) を参照してください。以下は元のテンプレートの開局・素材ガイドです。
+
 このリポジトリは「局」です。`index.html`（プレーヤー）が、局の中身（`station.json`、`episodes/`、`character/`、音声）を読んで、HTML の番組として再生します。ビルドの仕組みはありません。置いてあるものを読むだけです。
 
 ## 新しい局を開くとき

@@ -1,0 +1,48 @@
+{
+  "summary_mode": "openai",
+  "summary_model": "gpt-4.1-mini",
+  "max_stories": 4,
+  "max_age_hours": 24,
+  "sources": [
+    {
+      "name": "NHK",
+      "url": "https://news.web.nhk/n-data/conf/na/rss/cat0.xml"
+    },
+    {
+      "name": "Yahoo!ニュース",
+      "url": "https://news.yahoo.co.jp/rss/topics/top-picks.xml"
+    },
+    {
+      "name": "朝日新聞",
+      "url": "https://www.asahi.com/rss/asahi/newsheadlines.rdf"
+    },
+    {
+      "name": "毎日新聞",
+      "url": "https://mainichi.jp/rss/etc/mainichi-flash.rss"
+    },
+    {
+      "name": "時事通信",
+      "url": "https://www.jiji.com/rss/ranking.rdf"
+    },
+    {
+      "name": "FNN",
+      "url": "https://www.fnn.jp/list/feed/rss"
+    },
+    {
+      "name": "東洋経済オンライン",
+      "url": "https://toyokeizai.net/list/feed/rss"
+    },
+    {
+      "name": "Impress Watch",
+      "url": "https://www.watch.impress.co.jp/data/rss/1.0/ipw/feed.rdf"
+    },
+    {
+      "name": "nippon.com",
+      "url": "https://www.nippon.com/list/feed/rss_ja"
+    },
+    {
+      "name": "デジタル庁",
+      "url": "https://www.digital.go.jp/rss/news.xml"
+    }
+  ]
+}
