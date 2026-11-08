@@ -1,6 +1,5 @@
 {
-  "summary_mode": "openai",
-  "summary_model": "gpt-4.1-mini",
+  "allow_publication": false,
   "max_stories": 4,
   "max_age_hours": 24,
   "sources": [

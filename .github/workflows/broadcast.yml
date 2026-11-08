@@ -20,7 +20,7 @@ on:
           - '12:00'
           - '18:00'
       preview:
-        description: プレビューのみ（GitHub Pages に公開しない）
+        description: サンプルの試聴版を作る（ニュース取得・公開なし）
         type: boolean
         default: true
 
@@ -35,11 +35,30 @@ defaults:
     shell: bash
 
 jobs:
+  demo:
+    if: github.event_name == 'workflow_dispatch' && inputs.preview
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - name: Package the offline demo
+        run: python tools/demo.py --output "$RUNNER_TEMP/My Radio デモ.html"
+      - name: Upload the demo
+        uses: actions/upload-artifact@v7
+        with:
+          name: radio-demo
+          path: ${{ runner.temp }}/My Radio デモ.html
+          retention-days: 3
+
   build:
     if: >-
       (github.event_name == 'schedule' && vars.BROADCAST_ENABLED == 'true') ||
-      (github.event_name == 'workflow_dispatch' && (inputs.preview ||
-      (github.ref_type == 'branch' && github.ref_name == github.event.repository.default_branch)))
+      (github.event_name == 'workflow_dispatch' && !inputs.preview &&
+      github.ref_type == 'branch' && github.ref_name == github.event.repository.default_branch)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -52,8 +71,14 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - name: Check approval to publish RSS excerpts
+        run: |
+          if [[ "$(jq -r '.allow_publication' news.json)" != true ]]; then
+            echo 'Publication is off. Review the feed terms and set allow_publication in news.json first.' >&2
+            exit 1
+          fi
+
       - name: Confirm that GitHub Pages is configured
-        if: ${{ !inputs.preview }}
         uses: actions/configure-pages@v6
 
       - name: Load the previous broadcast snapshot
@@ -80,7 +105,6 @@ jobs:
       - name: Generate the transcript and audio
         id: broadcast
         env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           MANUAL_SLOT: ${{ inputs.slot }}
           SCHEDULE: ${{ github.event.schedule }}
         run: |
@@ -113,14 +137,6 @@ jobs:
           fi
           ready=$(python -c 'import json,sys; print(str(bool(json.load(open(sys.argv[1], encoding="utf-8")))).lower())' "$site/episodes.json")
           echo "ready=$ready" >> "$GITHUB_OUTPUT"
-
-      - name: Upload the preview player
-        if: inputs.preview
-        uses: actions/upload-artifact@v7
-        with:
-          name: radio-preview
-          path: ${{ runner.temp }}/radio-site
-          retention-days: 3
 
       - name: Upload the next broadcast snapshot
         if: ${{ !inputs.preview && steps.site.outputs.ready == 'true' && steps.broadcast.outputs.generated == 'true' }}
