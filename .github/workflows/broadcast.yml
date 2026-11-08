@@ -77,6 +77,10 @@ jobs:
             echo 'Publication is off. Review the feed terms and set allow_publication in news.json first.' >&2
             exit 1
           fi
+          if [[ "$(jq -r '.voice' news.json)" != mei ]]; then
+            echo 'The hosted runner has no COEIROINK. Use tools/local_radio.py for Lilin-chan.' >&2
+            exit 1
+          fi
 
       - name: Confirm that GitHub Pages is configured
         uses: actions/configure-pages@v6

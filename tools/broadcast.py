@@ -10,12 +10,13 @@ import shutil
 import tempfile
 import unicodedata
 
+from conditions import earthquake_sections, earthquake_window, world_weather
 from news_feeds import article_key, collect_news
+from voice import LILIN, MEI, load_voice
 
 
 ROOT = Path(__file__).resolve().parent.parent
 JST = timezone(timedelta(hours=9))
-SAMPLE_RATE = 48_000
 
 
 def read_json(path):
@@ -50,7 +51,7 @@ def summarize(article):
     return "".join(selected)
 
 
-def make_episode(stories, edition, now, limit):
+def make_episode(stories, edition, now, limit, sections):
     news = []
     seen_titles = set()
     for article in stories:
@@ -70,6 +71,7 @@ def make_episode(stories, edition, now, limit):
         })
         if len(news) == limit:
             break
+    news.extend(sections)
     if not news:
         return None
     hour, minute = map(int, edition["time"].split(":"))
@@ -79,7 +81,8 @@ def make_episode(stories, edition, now, limit):
         "title": f"{clock}のニュース",
         "opening": [line(f"マイラジオです。{clock}のニュースをお届けします。")],
         "news": news,
-        "closing": [line("詳しくは元の記事をご覧ください。以上、マイラジオでした。")],
+        "closing": [line("詳しくは出典をご覧ください。以上、マイラジオでした。")],
+        "credits": ["天気：Open-Meteo（CC BY 4.0）", "地震：気象庁、USGS"] if sections else [],
         "made_at": now.isoformat(timespec="seconds"),
     }
 
@@ -88,41 +91,44 @@ def line(text):
     return {"say": text, "show": text}
 
 
-def synthesize(episode):
+def synthesize(episode, config):
     import lameenc
-    import numpy as np
-    import pyopenjtalk
+
+    speak, rate, credit = load_voice(config)
+    episode["voice_credit"] = credit
+    if credit == LILIN:
+        episode["closing"].append({"say": "音声は、コエイロインクのリリンちゃんでした。", "show": LILIN})
 
     parts = [("opening", None, episode["opening"])]
     parts.extend(("news", i, story["lines"]) for i, story in enumerate(episode["news"]))
     parts.append(("closing", None, episode["closing"]))
-    silence = np.zeros(SAMPLE_RATE // 5, dtype="<i2")
+    silence = bytes(2 * (rate // 5))
     samples = 0
     audio, timed, segments = [], [], []
 
     def stamp():
-        return round(samples / SAMPLE_RATE, 3)
+        return round(samples / rate, 3)
 
     for part, (kind, index, lines) in enumerate(parts):
         start = stamp()
         for spoken in lines:
-            clip, rate = pyopenjtalk.tts(spoken["say"], speed=1.07, predict_nani=False)
-            if rate != SAMPLE_RATE or not len(clip):
+            clip = speak(spoken["say"])
+            if not clip or len(clip) % 2:
                 raise RuntimeError("Japanese TTS returned unexpected audio.")
-            audio.append(np.clip(clip, -32768, 32767).astype("<i2"))
+            audio.append(clip)
             line_start = stamp()
-            samples += len(clip)
+            samples += len(clip) // 2
             timed.append({"start": line_start, "end": stamp(), "show": spoken["show"], "part": part})
             audio.append(silence)
-            samples += len(silence)
+            samples += len(silence) // 2
         segments.append({"kind": kind, "index": index, "start": start, "end": stamp()})
     episode.update(seconds=stamp(), lines_timed=timed, segments=segments)
     encoder = lameenc.Encoder()
-    encoder.set_in_sample_rate(SAMPLE_RATE)
+    encoder.set_in_sample_rate(rate)
     encoder.set_channels(1)
     encoder.set_bit_rate(64)
     encoder.set_quality(2)
-    return encoder.encode(np.concatenate(audio).tobytes()) + encoder.flush()
+    return encoder.encode(b"".join(audio)) + encoder.flush()
 
 
 def stage_previous(state, output, cutoff):
@@ -149,27 +155,35 @@ def broadcast(config, slot, state, output, now):
     date = now.date().isoformat()
     episode_id = f"{date}-{slot.replace(':', '')}"
     edition = {"id": episode_id, "date": date, "time": slot}
-    keep_days = int(read_json(ROOT / "station.json")["audio"]["keep_days"])
+    station = read_json(ROOT / "station.json")
+    keep_days = int(station["audio"]["keep_days"])
     entries = stage_previous(state, output, (now.date() - timedelta(days=keep_days)).isoformat())
     generated = False
-    if not (output / "audio" / f"{episode_id}.mp3").is_file():
+    expected_voice = {"lilin": LILIN, "mei": MEI}.get(config.get("voice", "lilin"))
+    if expected_voice is None:
+        raise ValueError("news.json の voice は lilin または mei を指定してください。")
+    saved_script = output / "episodes" / f"{episode_id}.json"
+    has_audio = (output / "audio" / f"{episode_id}.mp3").is_file()
+    if not has_audio or read_json(saved_script).get("voice_credit", MEI) != expected_voice:
         recent = (now.date() - timedelta(days=1)).isoformat()
-        aired = {article_key(story["url"]) for key, item in entries.items() if item.get("id") and item["date"] >= recent
-                 for story in read_json(output / "episodes" / f"{key}.json")["news"]}
+        aired = {article_key(story["url"]) for key, item in entries.items() if item.get("id") and key != episode_id and item["date"] >= recent
+                 for story in read_json(output / "episodes" / f"{key}.json")["news"] if not story.get("kind")}
         limit = int(config.get("max_stories", 4))
         if not 1 <= limit <= 8 or not config["sources"]:
             raise ValueError("Configure at least one source and 1–8 stories in news.json.")
         stories = collect_news(config["sources"], now=now, max_age_hours=int(config.get("max_age_hours", 24)),
                                limit=limit * 8)
         stories = [item for item in stories if article_key(item["url"]) not in aired]
-        episode = make_episode(stories, edition, now, limit)
+        start, end = earthquake_window(now, date, slot, station["schedule"]["times"])
+        sections = [world_weather(now), *earthquake_sections(start, end)]
+        episode = make_episode(stories, edition, now, limit, sections)
         if episode:
-            mp3 = synthesize(episode)
+            mp3 = synthesize(episode, config)
             (output / "audio" / f"{episode_id}.mp3").write_bytes(mp3)
-            write_json(output / "episodes" / f"{episode_id}.json", episode)
+            write_json(saved_script, episode)
             entries[episode_id] = {**edition, "title": episode["title"], "seconds": episode["seconds"]}
             generated = True
-            print(f"Generated {episode_id}: {len(episode['news'])} stories, {episode['seconds']:.1f} seconds.")
+            print(f"Generated {episode_id}: {len(episode['news'])} segments, {episode['seconds']:.1f} seconds.")
         else:
             print("No new stories with usable RSS descriptions. Kept the previous editions.")
     else:

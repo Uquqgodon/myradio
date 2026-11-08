@@ -479,7 +479,7 @@ html.phone #share span{display:none}
   <details id="scriptBox"><summary id="scriptSum">台本を読む</summary><div class="source" id="scriptText"></div></details>
   <h1 id="pastH">これまでの放送</h1>
   <div class="eps" id="eps"></div>
-  <footer><span id="credits"></span> ／ <a id="stationRepo" href="https://github.com/Uquqgodon/myradio">myradio</a></footer>
+  <footer><span id="credits"></span><span id="voiceTerms" hidden> ／ 音声の利用条件 <a href="https://coeiroink.com/terms">COEIROINK</a>・<a href="https://coeiroink.com/character/audio-character/lilin-m">リリンちゃん</a></span> ／ <a id="stationRepo" href="https://github.com/Uquqgodon/myradio">myradio</a></footer>
 </main>
 <audio id="audio" preload="auto"></audio>
 <script id="demo-data" type="application/json"></script>
@@ -1127,8 +1127,12 @@ function setLang(l) {
   LANG = l; try { localStorage.setItem("lang", l); } catch {}
   document.documentElement.lang = l;
   document.title = st("name"); $("sname").textContent = st("name");
-  $("credits").textContent = [...(st("credits") || []), ...(STATION.weather ? [tr("wxCredit")] : [])].join(" ／ ");
-  $("camCredit").textContent = st("caster") || ""; $("camCredit").hidden = !st("caster");
+  const voiceCredit = ep?.voice_credit;
+  const coeiroink = voiceCredit?.startsWith("COEIROINK:");
+  $("credits").textContent = [...(voiceCredit ? [voiceCredit] : (st("credits") || [])), ...(ep?.credits || []), ...(STATION.weather ? [tr("wxCredit")] : [])].join(" ／ ");
+  $("voiceTerms").hidden = !coeiroink;
+  $("camCredit").textContent = coeiroink ? voiceCredit : voiceCredit ? "合成音声：Mei" : st("caster") || "";
+  $("camCredit").hidden = !$("camCredit").textContent;
   $("scriptSum").textContent = tr("script"); $("talkSum").textContent = tr("talk"); $("talkNote").textContent = tr("talkNote"); $("pastH").textContent = tr("past"); $("cardOpen").textContent = tr("open");
   $("mutedTxt").textContent = tr("muted"); $("rate").title = $("rate").ariaLabel = tr("rate");
   $("pp").ariaLabel = tr(audio.paused ? "play" : "pause");
