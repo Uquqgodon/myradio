@@ -1,16 +1,17 @@
-"""Build weather and earthquake segments from the public data providers."""
+"""Collect weather and earthquake snapshots from the public data providers."""
 
 from datetime import datetime, timedelta, timezone
 import json
 import logging
 import math
+import re
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 
 WEATHER = "https://api.open-meteo.com/v1/forecast"
 JMA = "https://www.jma.go.jp/bosai/quake/data/list.json"
-USGS = "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/4.5_day.geojson"
+USGS = "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/4.5_week.geojson"
 CAPITALS = [
     ("東京", 35.68, 139.69), ("ソウル", 37.57, 126.98),
     ("北京", 39.90, 116.41), ("ニューデリー", 28.61, 77.21),
@@ -29,12 +30,6 @@ def fetch_json(url):
     except (OSError, ValueError) as exc:
         logging.warning("Could not load %s: %s", url.split("?")[0], exc)
         return None
-
-
-def section(kind, label, source, url, intro, points):
-    return {"kind": kind, "label": label, "points": points,
-            "lines": [{"say": line, "show": line} for line in [intro, *points]],
-            "url": url, "link": {"url": url, "site": source, "title": label}}
 
 
 def weather_name(code):
@@ -62,25 +57,23 @@ def world_weather(now):
         "current": "temperature_2m,weather_code",
     })
     data = fetch_json(f"{WEATHER}?{query}")
+    rows = data if isinstance(data, list) and len(data) == len(CAPITALS) else [{} for _ in CAPITALS]
     cities = []
-    snapshot = now
-    if isinstance(data, list) and len(data) == len(CAPITALS):
-        timestamp = data[0].get("current", {}).get("time")
-        if isinstance(timestamp, str):
-            snapshot = datetime.fromisoformat(timestamp).replace(tzinfo=timezone.utc).astimezone(now.tzinfo)
-        for (name, _, _), row in zip(CAPITALS, data):
-            current = row.get("current", {})
-            temp = current.get("temperature_2m")
-            if isinstance(temp, (int, float)) and math.isfinite(temp):
-                degrees = f"マイナス{abs(round(temp))}" if round(temp) < 0 else str(round(temp))
-                cities.append(f"{name}は{weather_name(current.get('weather_code'))}、{degrees}度")
-            else:
-                cities.append(f"{name}はデータなし")
-    points = ["。".join(cities[i:i+2]) + "。" for i in range(0, len(cities), 2)]
-    if not points:
-        points = ["各都市の天気を取得できませんでした。"]
-    return section("weather", "世界の天気", "Open-Meteo", "https://open-meteo.com/",
-                   f"世界の主要都市の天気です。日本時間{snapshot.hour}時{snapshot.minute}分ごろの推定です。", points)
+    observed_at = None
+    for (name, _, _), row in zip(CAPITALS, rows):
+        current = (row.get("current") or {}) if isinstance(row, dict) else {}
+        temp = current.get("temperature_2m")
+        if not isinstance(temp, (int, float)) or not math.isfinite(temp):
+            temp = None
+        timestamp = current.get("time")
+        if temp is not None and observed_at is None and isinstance(timestamp, str):
+            try:
+                observed_at = datetime.fromisoformat(timestamp).replace(tzinfo=timezone.utc).astimezone(now.tzinfo)
+            except ValueError:
+                pass
+        cities.append({"name": name, "temp_c": temp, "condition": weather_name(current.get("weather_code"))})
+    return {"observed_at": observed_at.isoformat(timespec="minutes") if observed_at else None,
+            "cities": cities}
 
 
 def earthquake_window(now, date, slot, slots):
@@ -91,8 +84,10 @@ def earthquake_window(now, date, slot, slots):
     return start, min(now, end)
 
 
-def jp_time(value, include_day=False):
-    return (f"{value.day}日" if include_day else "") + f"{value.hour}時{value.minute}分"
+def position(lat, lon):
+    if isinstance(lat, (int, float)) and isinstance(lon, (int, float)) and -90 <= lat <= 90 and -180 <= lon <= 180:
+        return {"lat": lat, "lon": lon}
+    return {}
 
 
 def japan_quakes(data, start, end):
@@ -110,8 +105,11 @@ def japan_quakes(data, start, end):
         except (KeyError, TypeError, ValueError):
             continue
         if start < time <= end:
-            intensity = JMA_INTENSITY[item["maxi"]]
-            events.append((time, f"{jp_time(time, True)}ごろ、{item['anm']}で最大震度{intensity}。"))
+            coordinates = re.match(r"([+-]\d+(?:\.\d+)?)([+-]\d+(?:\.\d+)?)", item.get("cod") or "")
+            point = position(*map(float, coordinates.groups())) if coordinates else {}
+            events.append({"source": "jma", "place": item["anm"], "time": time.isoformat(),
+                           "intensity": JMA_INTENSITY[item["maxi"]], **point,
+                           "url": "https://www.jma.go.jp/bosai/map.html#contents=earthquake_map"})
     return events
 
 
@@ -122,44 +120,42 @@ def world_quakes(data, start, end):
         magnitude, millis = item.get("mag"), item.get("time")
         place = item.get("place") or ""
         if (item.get("type") != "earthquake" or not isinstance(magnitude, (int, float))
-                or not 5 <= magnitude <= 10 or not isinstance(millis, (int, float))
-                or place.casefold().endswith(("japan", "japan region"))):
+                or not 5 <= magnitude <= 10 or not isinstance(millis, (int, float))):
             continue
         try:
             time = datetime.fromtimestamp(millis / 1000, start.tzinfo)
         except (OverflowError, OSError, ValueError):
             continue
         if start < time <= end:
-            # The source uses English place names. Keep them as reported.
-            events.append((time, f"{jp_time(time, True)}ごろ、{place or '震源地不明'}でマグニチュード{magnitude:.1f}。"))
+            coordinates = (feature.get("geometry") or {}).get("coordinates") or []
+            point = position(coordinates[1], coordinates[0]) if len(coordinates) >= 2 else {}
+            url = item.get("url") or ""
+            if not url.startswith("https://earthquake.usgs.gov/earthquakes/eventpage/"):
+                url = "https://earthquake.usgs.gov/earthquakes/map/"
+            events.append({"source": "usgs", "place": place or "震源地不明", "time": time.isoformat(),
+                           "magnitude": magnitude, "url": url, **point})
     return events
 
 
-def quake_points(events, threshold):
-    if events is None:
-        return ["地震情報を取得できませんでした。"]
-    if not events:
-        return [f"この時間帯の公表データに、{threshold}の地震はありませんでした。"]
-    points = [text for _, text in sorted(events, reverse=True)[:3]]
-    if len(events) > 3:
-        points.append(f"この時間帯の該当件数は、合わせて{len(events)}件です。")
-    return points
+def same_quake(first, second):
+    if not all(key in event for event in (first, second) for key in ("lat", "lon")):
+        return False
+    delta = datetime.fromisoformat(first["time"]) - datetime.fromisoformat(second["time"])
+    longitude = abs(first["lon"] - second["lon"])
+    return (abs(delta.total_seconds()) <= 60 and abs(first["lat"] - second["lat"]) < 0.5
+            and min(longitude, 360 - longitude) < 0.5)
 
 
-def earthquake_sections(start, end):
+def earthquakes(start, end):
+    snapshot = {"start": start.isoformat(), "end": end.isoformat(), "sources": {}, "events": []}
     if start >= end:
-        return []
-    intro = f"日本時間{jp_time(start, True)}から{jp_time(end, True)}までの地震情報です。"
+        return snapshot
     jma = fetch_json(JMA)
     usgs = fetch_json(USGS)
-    jp = japan_quakes(jma, start, end) if isinstance(jma, list) else None
-    overseas = usgs.get("features") if isinstance(usgs, dict) else None
-    world = world_quakes(overseas, start, end) if isinstance(overseas, list) else None
-    return [
-        section("earthquake", "日本の地震", "気象庁",
-                "https://www.jma.go.jp/bosai/map.html#contents=earthquake_map",
-                intro, quake_points(jp, "最大震度3以上")),
-        section("earthquake", "海外の地震", "USGS",
-                "https://earthquake.usgs.gov/earthquakes/map/",
-                "続いて、海外の地震です。", quake_points(world, "マグニチュード5以上")),
-    ]
+    global_data = usgs.get("features") if isinstance(usgs, dict) else None
+    snapshot["sources"] = {"jma": isinstance(jma, list), "usgs": isinstance(global_data, list)}
+    japan = japan_quakes(jma, start, end) if snapshot["sources"]["jma"] else []
+    world = world_quakes(global_data, start, end) if snapshot["sources"]["usgs"] else []
+    events = japan + [event for event in world if not any(same_quake(event, jp) for jp in japan)]
+    snapshot["events"] = sorted(events, key=lambda event: event["time"], reverse=True)
+    return snapshot

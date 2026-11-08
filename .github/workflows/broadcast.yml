@@ -131,7 +131,7 @@ jobs:
           site="$RUNNER_TEMP/radio-site"
           mkdir -p "$site"
           cp index.html station.json episodes.json LICENSE manifest.webmanifest "$site/"
-          cp -R character icons demo "$site/"
+          cp -R assets character icons demo "$site/"
           if [[ -d episodes ]]; then cp -R episodes "$site/"; fi
           for file in logo.svg sw.js; do
             if [[ -f "$file" ]]; then cp "$file" "$site/"; fi

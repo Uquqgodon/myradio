@@ -10,13 +10,14 @@ import shutil
 import tempfile
 import unicodedata
 
-from conditions import earthquake_sections, earthquake_window, world_weather
+from conditions import earthquakes, earthquake_window, world_weather
 from news_feeds import article_key, collect_news
 from voice import LILIN, MEI, load_voice
 
 
 ROOT = Path(__file__).resolve().parent.parent
 JST = timezone(timedelta(hours=9))
+VISUAL_TOPICS = re.compile(r"天気|気温|台風|大雨|大雪|猛暑|寒波|地震|余震|震源|震度")
 
 
 def read_json(path):
@@ -51,14 +52,14 @@ def summarize(article):
     return "".join(selected)
 
 
-def make_episode(stories, edition, now, limit, sections):
+def make_episode(stories, edition, now, limit):
     news = []
     seen_titles = set()
     for article in stories:
         title = article["title"].rstrip("。")
         title_key = sentence_key(title)
         summary = summarize(article)
-        if not summary or title_key in seen_titles:
+        if not summary or title_key in seen_titles or VISUAL_TOPICS.search(title):
             continue
         seen_titles.add(title_key)
         spoken = f"{article['source']}から。{summary}"
@@ -71,18 +72,16 @@ def make_episode(stories, edition, now, limit, sections):
         })
         if len(news) == limit:
             break
-    news.extend(sections)
-    if not news:
-        return None
     hour, minute = map(int, edition["time"].split(":"))
     clock = f"{hour}時" + (f"{minute}分" if minute else "")
     return {
         "format": "monoradio/news-1", **edition, "lang": "ja",
         "title": f"{clock}のニュース",
-        "opening": [line(f"マイラジオです。{clock}のニュースをお届けします。")],
+        "opening": [line(f"マイラジオです。{clock}のニュースをお届けします。" if news
+                         else "マイラジオです。この時間の新着ニュースはありません。")],
         "news": news,
-        "closing": [line("詳しくは出典をご覧ください。以上、マイラジオでした。")],
-        "credits": ["天気：Open-Meteo（CC BY 4.0）", "地震：気象庁、USGS"] if sections else [],
+        "closing": [line("以上、マイラジオでした。")],
+        "credits": ["天気：Open-Meteo（CC BY 4.0）", "地震：気象庁、USGS"],
         "made_at": now.isoformat(timespec="seconds"),
     }
 
@@ -164,7 +163,8 @@ def broadcast(config, slot, state, output, now):
         raise ValueError("news.json の voice は lilin または mei を指定してください。")
     saved_script = output / "episodes" / f"{episode_id}.json"
     has_audio = (output / "audio" / f"{episode_id}.mp3").is_file()
-    if not has_audio or read_json(saved_script).get("voice_credit", MEI) != expected_voice:
+    saved = read_json(saved_script) if has_audio else {}
+    if saved.get("voice_credit", MEI) != expected_voice or not {"weather", "earthquakes"} <= saved.keys():
         recent = (now.date() - timedelta(days=1)).isoformat()
         aired = {article_key(story["url"]) for key, item in entries.items() if item.get("id") and key != episode_id and item["date"] >= recent
                  for story in read_json(output / "episodes" / f"{key}.json")["news"] if not story.get("kind")}
@@ -175,17 +175,15 @@ def broadcast(config, slot, state, output, now):
                                limit=limit * 8)
         stories = [item for item in stories if article_key(item["url"]) not in aired]
         start, end = earthquake_window(now, date, slot, station["schedule"]["times"])
-        sections = [world_weather(now), *earthquake_sections(start, end)]
-        episode = make_episode(stories, edition, now, limit, sections)
-        if episode:
-            mp3 = synthesize(episode, config)
-            (output / "audio" / f"{episode_id}.mp3").write_bytes(mp3)
-            write_json(saved_script, episode)
-            entries[episode_id] = {**edition, "title": episode["title"], "seconds": episode["seconds"]}
-            generated = True
-            print(f"Generated {episode_id}: {len(episode['news'])} segments, {episode['seconds']:.1f} seconds.")
-        else:
-            print("No new stories with usable RSS descriptions. Kept the previous editions.")
+        episode = make_episode(stories, edition, now, limit)
+        episode["weather"] = world_weather(now)
+        episode["earthquakes"] = earthquakes(start, end)
+        mp3 = synthesize(episode, config)
+        (output / "audio" / f"{episode_id}.mp3").write_bytes(mp3)
+        write_json(saved_script, episode)
+        entries[episode_id] = {**edition, "title": episode["title"], "seconds": episode["seconds"]}
+        generated = True
+        print(f"Generated {episode_id}: {len(episode['news'])} news stories, {episode['seconds']:.1f} seconds.")
     else:
         print(f"Edition {episode_id} already exists. Reusing it.")
     write_json(output / "episodes.json", [entries[key] for key in sorted(entries, reverse=True)])

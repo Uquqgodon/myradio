@@ -16,7 +16,7 @@ def read_json(path):
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def bundle(output, state=None):
+def bundle(output, state=None, start=None):
     if state is not None and not (state / "episodes.json").is_file():
         raise ValueError(f"No episodes.json in {state}")
 
@@ -32,7 +32,7 @@ def bundle(output, state=None):
     station.pop("comments", None)
     character = read_json(ROOT / "character/character.json")
     files = {"station.json": station, "character/character.json": character}
-    media = {"icons/icon-192.png"}
+    media = {"icons/icon-192.png", "assets/world-land.svg"}
     if station.get("logo"):
         media.add(station["logo"])
     media.update(path.relative_to(ROOT).as_posix() for path in (ROOT / "character").iterdir()
@@ -55,6 +55,8 @@ def bundle(output, state=None):
             break
     if not entries:
         raise ValueError("No playable editions to bundle.")
+    if start and start not in {entry.get("id", entry["date"]) for entry in entries}:
+        raise ValueError(f"The start edition is not in the demo: {start}")
     files["episodes.json"] = entries
 
     assets = {}
@@ -66,7 +68,7 @@ def bundle(output, state=None):
     html = (ROOT / "index.html").read_text(encoding="utf-8")
     if html.count(MARKER) != 1:
         raise ValueError("The player is missing its demo data marker.")
-    data = json.dumps({"json": files, "assets": assets}, ensure_ascii=False).replace("<", "\\u003c")
+    data = json.dumps({"json": files, "assets": assets, "start": start}, ensure_ascii=False).replace("<", "\\u003c")
     html = html.replace(MARKER, MARKER + data)
     html = re.sub(r'^<link rel="(?:manifest|apple-touch-icon)"[^\n]*\n', "", html, flags=re.MULTILINE)
     html = html.replace('href="./icons/icon-192.png"', f'href="{assets["icons/icon-192.png"]}"')
@@ -80,8 +82,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--state-dir", type=Path, help="Optional output from tools/broadcast.py")
+    parser.add_argument("--start", help="Optional episode ID to open first")
     args = parser.parse_args()
-    bundle(args.output, args.state_dir)
+    bundle(args.output, args.state_dir, args.start)
 
 
 if __name__ == "__main__":
