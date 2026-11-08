@@ -1,0 +1,185 @@
+name: My Radio broadcast
+
+on:
+  schedule:
+    - cron: '0 7 * * *'
+      timezone: Asia/Tokyo
+    - cron: '0 12 * * *'
+      timezone: Asia/Tokyo
+    - cron: '0 18 * * *'
+      timezone: Asia/Tokyo
+  workflow_dispatch:
+    inputs:
+      slot:
+        description: 放送枠（日本時間）
+        type: choice
+        required: true
+        default: '07:00'
+        options:
+          - '07:00'
+          - '12:00'
+          - '18:00'
+      preview:
+        description: プレビューのみ（GitHub Pages に公開しない）
+        type: boolean
+        default: true
+
+concurrency:
+  group: broadcast-${{ inputs.preview && 'preview' || 'publish' }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions: {}
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    if: >-
+      (github.event_name == 'schedule' && vars.BROADCAST_ENABLED == 'true') ||
+      (github.event_name == 'workflow_dispatch' && (inputs.preview ||
+      (github.ref_type == 'branch' && github.ref_name == github.event.repository.default_branch)))
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pages: read
+    outputs:
+      state_head: ${{ steps.state.outputs.head }}
+      generated: ${{ steps.broadcast.outputs.generated }}
+      ready: ${{ steps.site.outputs.ready }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Confirm that GitHub Pages is configured
+        if: ${{ !inputs.preview }}
+        uses: actions/configure-pages@v6
+
+      - name: Load the previous broadcast snapshot
+        id: state
+        run: |
+          state_ref=refs/heads/broadcast-data
+          head=$(git ls-remote origin "$state_ref" | cut -f1)
+          echo "head=$head" >> "$GITHUB_OUTPUT"
+          mkdir -p "$RUNNER_TEMP/state"
+          if [[ -n "$head" ]]; then
+            git fetch --depth=1 origin "$head"
+            git archive "$head" | tar -x -C "$RUNNER_TEMP/state"
+          fi
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: tools/requirements.txt
+
+      - name: Install broadcast dependencies
+        run: python -m pip install -r tools/requirements.txt
+
+      - name: Generate the transcript and audio
+        id: broadcast
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          MANUAL_SLOT: ${{ inputs.slot }}
+          SCHEDULE: ${{ github.event.schedule }}
+        run: |
+          case "$SCHEDULE" in
+            '0 7 * * *') slot='07:00' ;;
+            '0 12 * * *') slot='12:00' ;;
+            '0 18 * * *') slot='18:00' ;;
+            '') slot="$MANUAL_SLOT" ;;
+            *) echo "Unknown broadcast schedule: $SCHEDULE" >&2; exit 1 ;;
+          esac
+          state_args=()
+          if [[ -f "$RUNNER_TEMP/state/episodes.json" ]]; then
+            state_args=(--state-dir "$RUNNER_TEMP/state")
+          fi
+          python tools/broadcast.py --slot "$slot" "${state_args[@]}" --output-dir "$RUNNER_TEMP/broadcast"
+
+      - name: Package the radio player
+        id: site
+        run: |
+          site="$RUNNER_TEMP/radio-site"
+          mkdir -p "$site"
+          cp index.html station.json episodes.json LICENSE manifest.webmanifest "$site/"
+          cp -R character icons demo "$site/"
+          if [[ -d episodes ]]; then cp -R episodes "$site/"; fi
+          for file in logo.svg sw.js; do
+            if [[ -f "$file" ]]; then cp "$file" "$site/"; fi
+          done
+          if [[ -f "$RUNNER_TEMP/broadcast/episodes.json" ]]; then
+            cp -R "$RUNNER_TEMP/broadcast/." "$site/"
+          fi
+          ready=$(python -c 'import json,sys; print(str(bool(json.load(open(sys.argv[1], encoding="utf-8")))).lower())' "$site/episodes.json")
+          echo "ready=$ready" >> "$GITHUB_OUTPUT"
+
+      - name: Upload the preview player
+        if: inputs.preview
+        uses: actions/upload-artifact@v7
+        with:
+          name: radio-preview
+          path: ${{ runner.temp }}/radio-site
+          retention-days: 3
+
+      - name: Upload the next broadcast snapshot
+        if: ${{ !inputs.preview && steps.site.outputs.ready == 'true' && steps.broadcast.outputs.generated == 'true' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: broadcast-state
+          path: ${{ runner.temp }}/broadcast
+          if-no-files-found: error
+          retention-days: 3
+
+      - name: Upload the site for GitHub Pages
+        if: ${{ !inputs.preview && steps.site.outputs.ready == 'true' }}
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: ${{ runner.temp }}/radio-site
+          retention-days: 3
+
+  persist:
+    needs: build
+    if: ${{ !inputs.preview && needs.build.outputs.ready == 'true' && needs.build.outputs.generated == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: broadcast-state
+          path: ${{ runner.temp }}/broadcast
+
+      - name: Save the broadcast snapshot to its data branch
+        env:
+          EXPECTED_HEAD: ${{ needs.build.outputs.state_head }}
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          export GIT_INDEX_FILE="$RUNNER_TEMP/broadcast-index"
+          git --work-tree="$RUNNER_TEMP/broadcast" add --all --force
+          tree=$(git write-tree)
+          revision=$(git commit-tree "$tree" -m "Broadcast snapshot $GITHUB_RUN_ID")
+          state_ref=refs/heads/broadcast-data
+          # Keep only the latest snapshot and refuse to replace concurrently updated data.
+          git push --force-with-lease="$state_ref:$EXPECTED_HEAD" origin "$revision:$state_ref"
+
+  deploy:
+    needs: [build, persist]
+    if: >-
+      !cancelled() && !inputs.preview && needs.build.result == 'success' &&
+      needs.build.outputs.ready == 'true' && (needs.persist.result == 'success' || needs.persist.result == 'skipped')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/deploy-pages@v5
+        id: deployment

@@ -204,22 +204,22 @@ def main():
     os.makedirs(os.path.join(root, "share"), exist_ok=True)
     made, newest = 0, None
     for entry in json.load(open(os.path.join(root, station.get("episodes", "episodes.json")))):   # newest first
-        date = entry["date"]
+        episode_id = entry.get("id", entry["date"])
         langs = [k for k in entry if k != "date" and isinstance(entry[k], dict)] or [None]
         for lang in langs:
-            stem = f"{date}-{lang}" if lang else date
+            stem = f"{episode_id}-{lang}" if lang else episode_id
             if not ("--all" in sys.argv) and os.path.exists(os.path.join(root, "share", f"{stem}.html")): continue
             ep = json.load(open(os.path.join(root, "episodes", f"{stem}.json")))
             L = lang or ep.get("lang") or station.get("language", "ja")
             st = lambda k: station.get("i18n", {}).get(L, {}).get(k, station.get(k))
             logo = logo_image(os.path.join(root, station["logo"]) if station.get("logo") else None, 40)
             card(station, st, ep, L, char, logo, fpath).save(os.path.join(root, "share", f"{stem}.jpg"), quality=88, optimize=True)
-            target = f"../#{date}/{lang}" if lang else f"../#{date}"
+            target = f"../#{episode_id}/{lang}" if lang else f"../#{episode_id}"
             open(os.path.join(root, "share", f"{stem}.html"), "w").write(page(st, ep, L, stem, target, base))
             made += 1
         if newest is None:
             pick = station.get("language") if station.get("language") in langs else langs[0]
-            stem = f"{date}-{pick}" if pick else date
+            stem = f"{episode_id}-{pick}" if pick else episode_id
             if os.path.exists(os.path.join(root, "share", f"{stem}.jpg")): newest = stem
     print(f"share: {made} made")
     if "--front" in sys.argv and base: front(root, station, base, newest)
